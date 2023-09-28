@@ -3,6 +3,7 @@ import os
 import streamlit as st
 import json
 import plotly.express as px
+import pandas as pd
 
 from typing import Optional, Type
 
@@ -59,6 +60,26 @@ def get_hist_price_plot(code, days_ago):
             'x': 'Date',
             'y': f'Price ({currency})'
         }
+    )
+    
+    return fig
+
+def get_multiple_price_plot(stocks, days_ago):
+    df_dict = dict.fromkeys(stocks,[])
+    
+    for code in stocks:
+        hist_data, currency = get_history_prices(code, days_ago)
+        df_dict[code] = hist_data['Close'].values
+        
+    df = pd.DataFrame(df_dict, index=hist_data.index)
+    
+    fig = px.line(
+        df,
+        title=f"Stock price comparison over {days_ago} days - now"
+    ).update_layout(
+        xaxis={'title':'Date'}, 
+        yaxis={"title": f"Price ({currency})"}, 
+        legend={"title":"Code"}
     )
     
     return fig
@@ -161,7 +182,7 @@ if __name__=='__main__':
     # Tools for our agent to use
     tools = [ddg_tool, StockPriceTool(), StockPctChangeTool(), StockGetBestPerformingTool()]
     
-    arg_tool = [StockPctChangeTool()]
+    arg_tool = [StockPctChangeTool(), StockGetBestPerformingTool()]
     functions = [format_tool_to_openai_function(t) for t in arg_tool]
     
     open_ai_agent = initialize_agent(
@@ -186,13 +207,24 @@ if __name__=='__main__':
         with st.chat_message("assistant"):
             st.spinner('Generating ...')
             st_callback = StreamlitCallbackHandler(st.container())
-            response = open_ai_agent.run(prompt, callbacks=[st_callback])
+            response = open_ai_agent.run(input=prompt, callbacks=[st_callback], return_intermediate_steps=True)
             st.session_state.messages.append({'role':'assistant','content':response})
             st.write(response)
             # get the message arguments for plotting
             ai_message = llm.predict_messages([HumanMessage(content=prompt)], functions=functions)
             _args = json.loads(ai_message.additional_kwargs['function_call'].get('arguments'))
-            stock_code = _args.get('stockticker')
+            if _args.get('stocktickers'):
+                stock_codes = _args.get('stocktickers')
+            elif _args.get('stockticker'):
+                stock_codes = _args.get('stockticker')
+            else:
+                print('Stock code could not be found in the parameters used.')
             days = _args.get('days_ago',0)
+            # print(ai_message)
             if days > 0:
-                st.plotly_chart(get_hist_price_plot(stock_code, days), use_container_width=True)
+                if isinstance(stock_codes, str):
+                    st.plotly_chart(get_hist_price_plot(stock_codes[0], days), use_container_width=True)
+                elif isinstance(stock_codes, list):
+                    st.plotly_chart(get_multiple_price_plot(stock_codes, days), use_container_width=True)
+                else:
+                    print(f"Cannot plot chart for {stock_codes}")
