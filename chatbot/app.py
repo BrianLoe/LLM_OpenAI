@@ -1,10 +1,11 @@
 import yfinance as yf
 import os
 import streamlit as st
-# import matplotlib.pyplot as plt
 import json
-# from matplotlib.dates import MonthLocator, DateFormatter
+import plotly.express as px
+
 from typing import Optional, Type
+
 from langchain.tools import BaseTool, format_tool_to_openai_function
 from langchain.schema import HumanMessage
 from langchain.agents import initialize_agent, Tool
@@ -12,12 +13,10 @@ from langchain.agents import AgentType
 from langchain.chat_models import ChatOpenAI
 from langchain.tools import DuckDuckGoSearchRun
 from langchain.callbacks import StreamlitCallbackHandler
+
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
-# from bokeh.plotting import figure
-# from bokeh.models import DatetimeTickFormatter
-import plotly.express as px
 
 def get_stock_price(code):
     ticker = yf.Ticker(code)
@@ -64,6 +63,21 @@ def get_hist_price_plot(code, days_ago):
     
     return fig
 
+def get_best_performing_stock(stocks, days_ago):
+    best_stock = stocks[0]
+    best_performance = get_price_change_pct(stocks[0], days_ago)
+    
+    for code in stocks[1:]:
+        try:
+            perf = get_price_change_pct(code, days_ago)
+            if perf>best_performance:
+                best_stock = code
+                best_performance = perf
+        except Exception as e:
+            print(f"Could not calculate performance for {code}: {e}")
+            
+    return best_stock, best_performance
+
 class StockPriceCheckInput(BaseModel):
     """Input for stock price check."""
 
@@ -103,6 +117,26 @@ class StockPctChangeTool(BaseTool):
     
     args_schema: Optional[Type[BaseModel]] = StockPctChangeCheckInput
     
+class StockBestPerformingInput(BaseModel):
+    """Input for Stock ticker check. for percentage check"""
+
+    stocktickers: list[str] = Field(..., description="Ticker symbols for stocks or indices")
+    days_ago: int = Field(..., description="Int number of days to look back")
+    
+class StockGetBestPerformingTool(BaseTool):
+    name = 'get_best_performing_stock'
+    description = 'Useful for when you need to compare performance of multiple stocks over a period. You should input a list of stock tickers used on the yfinance API and also input the number of days to check the change over'
+    
+    def _run(self, stocktickers: list[str], days_ago: int):
+        response = get_best_performing_stock(stocktickers, days_ago)
+
+        return response
+    
+    def _arun(self, stockticker: list[str], days_ago: int):
+        raise NotImplementedError("This tool does not support async")
+
+    args_schema: Optional[Type[BaseModel]] = StockBestPerformingInput
+    
 if __name__=='__main__':
     # Load OpenAI API key from .env
     load_dotenv()
@@ -115,17 +149,17 @@ if __name__=='__main__':
     )
     # Web UI Layout
     st.set_page_config(
-        page_title='Australia Stock Price AI Tool',
+        page_title='Stock Price Inspector AI Tool',
         page_icon='📈',
         layout='centered'
     )
     st.title("OpenAI Stock Chatbot")
-    st.info("You can ask the bot about: today's stock price, australian companies who are listed on ASX, etc.")
+    st.info("You can ask the bot about: price of a stock, % change over days, performance comparison of two or more stocks, and search about popular public listed companies.")
     # plot_check = st.checkbox('Display plot')
     # GPT Model
     llm = ChatOpenAI(temperature=0, streaming=True, model="gpt-3.5-turbo-0613")
     # Tools for our agent to use
-    tools = [ddg_tool, StockPriceTool(), StockPctChangeTool()]
+    tools = [ddg_tool, StockPriceTool(), StockPctChangeTool(), StockGetBestPerformingTool()]
     
     arg_tool = [StockPctChangeTool()]
     functions = [format_tool_to_openai_function(t) for t in arg_tool]
@@ -136,6 +170,7 @@ if __name__=='__main__':
         agent=AgentType.OPENAI_FUNCTIONS,
         verbose=True
     )
+    
     if "messages" not in st.session_state:
         st.session_state["messages"] = [
             {'role':'assistant', 'content':"G'day, how can I help you today?"}
@@ -143,6 +178,7 @@ if __name__=='__main__':
         
     for msg in st.session_state.messages:
       st.chat_message(msg['role']).write(msg['content'])  
+      
     if prompt := st.chat_input(placeholder="What is the stock price of Commonwealth Bank of Australia?"):
         st.session_state.messages.append({'role':'user','content':prompt})
         st.chat_message("user").write(prompt)
@@ -158,5 +194,5 @@ if __name__=='__main__':
             _args = json.loads(ai_message.additional_kwargs['function_call'].get('arguments'))
             stock_code = _args.get('stockticker')
             days = _args.get('days_ago',0)
-            if days>0:
+            if days > 0:
                 st.plotly_chart(get_hist_price_plot(stock_code, days), use_container_width=True)
