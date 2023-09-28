@@ -1,0 +1,9 @@
+langchain
+streamlit
+openai
+transformers
+python-dotenv
+duckduckgo-search
+yfinance
+tiktoken
+plotly
