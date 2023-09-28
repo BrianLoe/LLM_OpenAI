@@ -1,2 +1,2 @@
 # LLM_OpenAI
- Learning resources for LLM
+ Learning resources for building web application using LLM
