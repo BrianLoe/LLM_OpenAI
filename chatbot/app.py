@@ -269,8 +269,6 @@ class StockGetBestPerformingTool(BaseTool):
     args_schema: Optional[Type[BaseModel]] = StockBestPerformingInput
     
 if __name__=='__main__':
-    # Load OpenAI API key from .env
-    load_dotenv()
     # Streamlit UI Layout
     st.set_page_config(
         page_title='Stock Price Inspector AI Tool',
@@ -291,12 +289,11 @@ if __name__=='__main__':
                 You need to input your OPENAI_API_key to use OpenAI GPT Model.
                 """)
     api_key = st.text_input('Input your OPENAI_API_key', type='password')
+    # # Load OpenAI API key from .env
+    # load_dotenv()
     llm = OpenAI(temperature=0, streaming=True, openai_api_key=api_key)
     # Tools for our agent to use
     tools = [ddg_tool, StockPriceTool(), StockPctChangeTool(), StockGetBestPerformingTool()]
-    
-    # arg_tool = [StockPctChangeTool()]
-    # functions = [format_tool_to_openai_function(t) for t in arg_tool]
     
     open_ai_agent = initialize_agent(
         tools,
