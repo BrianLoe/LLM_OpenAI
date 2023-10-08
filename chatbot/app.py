@@ -24,40 +24,56 @@ Query: {query}
 """
 
 def get_stock_price(code):
+    """
+    Get the closing price of {code}.
+    Returns a string object with format of price rounded to two decimals + currency
+    """
     ticker = yf.Ticker(code)
-    currency = ticker.info['currency']
+    currency = ticker.info['currency'] # get the currency info
     todays_data = ticker.history(period='1d')
     return "{} {}".format(round(todays_data['Close'].iloc[0], 2), currency)
 
 def get_history_prices(code, days_ago):
+    """
+    Get historical data of {code} based on {days_ago}
+    Returns a pandas dataframe object and the currency associated.
+    """
     ticker = yf.Ticker(code)
     currency = ticker.info['currency']
-    
+    # get the start_date(today - days_ago) and the end_date(today)
     end_date = datetime.now()
     start_date = end_date - timedelta(days=days_ago)
-    
+    # convert to string
     start_date = start_date.strftime('%Y-%m-%d')
     end_date = end_date.strftime('%Y-%m-%d')
-    
+    # get the data
     hist_data = ticker.history(start=start_date, end=end_date)
     
     return hist_data, currency
 
 def get_price_change_pct(stockticker_days):
-    code, days_ago = stockticker_days.split(',')    
-    hist_data, _ = get_history_prices(code, int(days_ago))
+    """
+    Get the change percentage of a stock price. Input is a string object of comma separated list consisting 'stockticker,days'.
+    Returns the percentage in float rounded to two decimals.
+    """
+    code, days_ago = stockticker_days.split(',')
+    hist_data, _ = get_history_prices(code, int(days_ago)) # get the history data
     
-    old_price = hist_data['Close'].iloc[0]
-    new_price = hist_data['Close'].iloc[-1]
+    old_price = hist_data['Close'].iloc[0] # the first price from (today - days_ago) ~ today
+    new_price = hist_data['Close'].iloc[-1] # the last price/current price
     
-    pct_change = ((new_price - old_price) / old_price) * 100
+    pct_change = ((new_price - old_price) / old_price) * 100 # % of change
     
     return round(pct_change, 2)
 
 def get_hist_price_plot(code, days_ago):
-    hist_data, currency = get_history_prices(code, days_ago)
-    hist_data = hist_data['Close']
-    
+    """
+    Get the line plot of {code} over {days_ago}. 
+    Returns the figure object of a {code} trend line plot over {days_ago}
+    """
+    hist_data, currency = get_history_prices(code, days_ago) # get history data
+    hist_data = hist_data['Close'] # take the closing price
+    # make a line plot
     fig = px.line(
         x=hist_data.index,
         y=hist_data.values,
@@ -67,10 +83,10 @@ def get_hist_price_plot(code, days_ago):
             'y': f'Price ({currency})'
         }
     ).update_traces(line_color='gray')
-    
+    # make annotation for highest/lowest price
     max_idx, max_val = hist_data.idxmax(), hist_data[hist_data.idxmax()]
     min_idx, min_val = hist_data.idxmin(), hist_data[hist_data.idxmin()]
-    
+    # add annotation
     fig.add_trace(go.Scatter(
         x=[max_idx],
         y=[max_val],
@@ -110,14 +126,18 @@ def get_hist_price_plot(code, days_ago):
     return fig
 
 def get_multiple_price_plot(stocks, days_ago):
-    df_dict = dict.fromkeys(stocks,[])
-    
+    """
+    Get the line plot for multiple {stocks} to be plotted in one figure.
+    Returns the figure object that shows the comparison of {stocks} over {days_ago}
+    """
+    df_dict = dict.fromkeys(stocks,[]) # make a dictionary from {stocks} as keys and empty list as value
+    # iterate over the {stocks}
     for code in stocks:
-        hist_data, currency = get_history_prices(code, days_ago)
-        df_dict[code] = hist_data['Close'].values
-        
+        hist_data, currency = get_history_prices(code, days_ago) # get the history data
+        df_dict[code] = hist_data['Close'].values # take the closing price and store it into dictionary
+    # make a dataframe object
     df = pd.DataFrame(df_dict, index=hist_data.index)
-    
+    # make a line plot
     fig = px.line(
         df,
         title=f"{' vs '.join(stocks)} stock price comparison over {days_ago} days - now"
@@ -130,9 +150,15 @@ def get_multiple_price_plot(stocks, days_ago):
     return fig
 
 def get_candlestick_plot(code, days_ago):
-    hist_data, currency = get_history_prices(code, days_ago)
+    """
+    Get the candlestick plot of {code} over {days_ago}
+    Returns the figure object that shows the candlestick figure.
+    """
+    hist_data, currency = get_history_prices(code, days_ago) # get history data
+    # string format the start_date and end_date for making the title
     start_date = hist_data.index.min().date().strftime('(%d %b %Y -')
     end_date = hist_data.index.max().date().strftime(' %d %b %Y)')
+    # make the candlestick plot
     fig = go.Figure(
         data=[
             go.Candlestick(
@@ -153,17 +179,21 @@ def get_candlestick_plot(code, days_ago):
     return fig
 
 def get_best_performing_stock(stocktickers_days):
-    stocks, days_ago = stocktickers_days.split(', ')
-    stocks = eval(stocks)
-    days_ago = int(days_ago)
-    
+    """
+    Get the best performing stock from {stocktickers} over {days}. Input is a string to be used by agent.
+    Returns a tuple consisting of the stock ticker, percentage of change
+    """
+    stocks, days_ago = stocktickers_days.split(', ') # input is '[], int'
+    stocks = eval(stocks) # treat string object as a list
+    days_ago = int(days_ago) # convert to int
+    # create a starting point/benchmark
     best_stock = stocks[0]
     best_performance = get_price_change_pct(str(stocks[0])+','+str(days_ago))
-    
+    # iterate over the rest of {stocks}
     for code in stocks[1:]:
         try:
-            perf = get_price_change_pct(str(code)+','+str(days_ago))
-            
+            perf = get_price_change_pct(str(code)+','+str(days_ago)) # get % of change
+            # compare with current best performer
             if perf>best_performance:
                 best_stock = code
                 best_performance = perf
@@ -257,7 +287,11 @@ if __name__=='__main__':
                 """)
     # plot_check = st.checkbox('Display plot')
     ## GPT Model
-    llm = OpenAI(temperature=0, streaming=True)
+    st.markdown("""
+                You need to input your OPENAI_API_key to use OpenAI GPT Model.
+                """)
+    api_key = st.text_input('Input your OPENAI_API_key', type='password')
+    llm = OpenAI(temperature=0, streaming=True, openai_api_key=api_key)
     # Tools for our agent to use
     tools = [ddg_tool, StockPriceTool(), StockPctChangeTool(), StockGetBestPerformingTool()]
     
@@ -300,7 +334,7 @@ if __name__=='__main__':
                 # get the message arguments for plotting
                 steps_dict = output['intermediate_steps'][0][0].dict()
                 _args = steps_dict.get('tool_input')
-                # print(_args)
+                
                 if set(['plot', 'graph', 'chart']).intersection(set(prompt.lower().split())):
                     if 'candlestick' in prompt.lower():
                         code, days_ago = _args.split(',')
