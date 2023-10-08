@@ -286,9 +286,9 @@ if __name__=='__main__':
     # plot_check = st.checkbox('Display plot')
     ## GPT Model
     st.markdown("""
-                You need to input your OPENAI_API_key to use OpenAI GPT Model.
+                You need to input your OpenAI API key to use OpenAI GPT Model.
                 """)
-    api_key = st.text_input('Input your OPENAI_API_key', type='password')
+    api_key = st.text_input('Input your OpenAI API key', type='password')
     # # Load OpenAI API key from .env
     # load_dotenv()
     llm = OpenAI(temperature=0, streaming=True, openai_api_key=api_key)
