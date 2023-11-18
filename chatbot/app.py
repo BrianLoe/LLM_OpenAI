@@ -23,20 +23,33 @@ If a plot is requested, don't try to create a plot, just answer the rest of the 
 Query: {query}
 """
 
-def get_stock_price(code):
+def get_stock_price(code: str) -> str:
     """
-    Get the closing price of {code}.
-    Returns a string object with format of price rounded to two decimals + currency
+    Get the closing price of a given stock code.
+    
+    Args:
+        code (str): The stock code for which the closing price is to be retrieved.
+        
+    Returns:
+        str: A string object containing the closing price of the stock rounded to two decimal places and the currency symbol.
     """
     ticker = yf.Ticker(code)
-    currency = ticker.info['currency'] # get the currency info
+    currency = ticker.info['currency']
     todays_data = ticker.history(period='1d')
-    return "{} {}".format(round(todays_data['Close'].iloc[0], 2), currency)
+    closing_price = todays_data['Close'].iloc[0]
+    formatted_price = "{:.2f} {}".format(closing_price, currency)
+    return formatted_price
 
-def get_history_prices(code, days_ago):
+def get_history_prices(code: str, days_ago: int) -> tuple:
     """
-    Get historical data of {code} based on {days_ago}
-    Returns a pandas dataframe object and the currency associated.
+    Get historical data of a given stock code for n days ago.
+    
+    Args:
+        code (str): The stock code for which the closing price is to be retrieved.
+        days_ago (int): The number of days to look back.
+    
+    Returns:
+        tuple: A pandas dataframe object and the currency associated.
     """
     ticker = yf.Ticker(code)
     currency = ticker.info['currency']
@@ -51,10 +64,15 @@ def get_history_prices(code, days_ago):
     
     return hist_data, currency
 
-def get_price_change_pct(stockticker_days):
+def get_price_change_pct(stockticker_days: str) -> float:
     """
-    Get the change percentage of a stock price. Input is a string object of comma separated list consisting 'stockticker,days'.
-    Returns the percentage in float rounded to two decimals.
+    Get the change percentage of a stock price.
+    
+    Args:
+        stockticker_days (str): A string object in a format of comma-separated {ticker, days} ex: (CBA.AX,10)
+        
+    Returns:
+        float: The percentage of change rounded to two decimals.
     """
     code, days_ago = stockticker_days.split(',')
     hist_data, _ = get_history_prices(code, int(days_ago)) # get the history data
@@ -66,10 +84,16 @@ def get_price_change_pct(stockticker_days):
     
     return round(pct_change, 2)
 
-def get_hist_price_plot(code, days_ago):
+def get_hist_price_plot(code: str, days_ago: int) -> go.Figure:
     """
-    Get the line plot of {code} over {days_ago}. 
-    Returns the figure object of a {code} trend line plot over {days_ago}
+    Create a line plot of a given stock code over days ago. 
+    
+    Args:
+        code (str): The stock code for which the closing price is to be retrieved.
+        days_ago (int): The number of days to look back.
+        
+    Returns:
+        plotly.graph_objects.Figure: The figure object storing the line plot.
     """
     hist_data, currency = get_history_prices(code, days_ago) # get history data
     hist_data = hist_data['Close'] # take the closing price
@@ -125,10 +149,16 @@ def get_hist_price_plot(code, days_ago):
     
     return fig
 
-def get_multiple_price_plot(stocks, days_ago):
+def get_multiple_price_plot(stocks: list, days_ago: int) -> go.Figure:
     """
-    Get the line plot for multiple {stocks} to be plotted in one figure.
-    Returns the figure object that shows the comparison of {stocks} over {days_ago}
+    Get the line plot for multiple stocks to be plotted in one figure.
+    
+    Args:
+        stocks (list): List of stock code for which the closing price is to be retrieved.
+        days_ago (int): The number of days to look back.
+        
+    Returns:
+        plotly.graph_objects.Figure: The figure object storing the line plot.
     """
     df_dict = dict.fromkeys(stocks,[]) # make a dictionary from {stocks} as keys and empty list as value
     # iterate over the {stocks}
@@ -149,10 +179,16 @@ def get_multiple_price_plot(stocks, days_ago):
     
     return fig
 
-def get_candlestick_plot(code, days_ago):
+def get_candlestick_plot(code: str, days_ago:int) -> go.Figure:
     """
     Get the candlestick plot of {code} over {days_ago}
-    Returns the figure object that shows the candlestick figure.
+    
+    Args:
+        code (str): The stock code for creating the candlestick plot.
+        days_ago (int): The number of days to look back.
+        
+    Returns:
+        plotly.graph_objects.Figure: The figure object storing the candlestick figure.
     """
     hist_data, currency = get_history_prices(code, days_ago) # get history data
     # string format the start_date and end_date for making the title
@@ -180,29 +216,35 @@ def get_candlestick_plot(code, days_ago):
 
 def get_best_performing_stock(stocktickers_days):
     """
-    Get the best performing stock from {stocktickers} over {days}. Input is a string to be used by agent.
-    Returns a tuple consisting of the stock ticker, percentage of change
+    Get the best performing stock from the list of stock codes over days ago. Input is a string to be used by the agent.
+    
+    Args:
+        stocktickers_days (str): A string object in a comma-separated format of {list, int} ex: "[CBA.AX,BHP.AX,MQG.AX], 10"
+    
+    Returns:
+        tuple: A tuple consisting of the stock ticker and percentage of change.
     """
     stocks, days_ago = stocktickers_days.split(', ') # input is '[], int'
     stocks = eval(stocks) # treat string object as a list
     days_ago = int(days_ago) # convert to int
     # create a starting point/benchmark
     best_stock = stocks[0]
-    best_performance = get_price_change_pct(str(stocks[0])+','+str(days_ago))
+    best_performance = get_price_change_pct(f"{stocks[0]},{days_ago}")
     # iterate over the rest of {stocks}
     for code in stocks[1:]:
         try:
-            perf = get_price_change_pct(str(code)+','+str(days_ago)) # get % of change
-            # compare with current best performer
-            if perf>best_performance:
+            current_performance = get_price_change_pct(f"{code},{days_ago}") # get % of change
+            # compare with best performer
+            if current_performance>best_performance:
                 best_stock = code
-                best_performance = perf
+                best_performance = current_performance
                 
         except Exception as e:
             print(f"Could not calculate performance for {code}: {e}")
             
     return best_stock, best_performance
 
+### Tools for the agent
 # Search tool using duckduckgo
 search = DuckDuckGoSearchRun()
 ddg_tool = Tool(
@@ -271,7 +313,7 @@ class StockGetBestPerformingTool(BaseTool):
 if __name__=='__main__':
     # Streamlit UI Layout
     st.set_page_config(
-        page_title='Stock Price Inspector AI Tool',
+        page_title='Stock Price Analyzer GPT Tool',
         page_icon='📈',
         # layout='centered'
     )
@@ -308,9 +350,9 @@ if __name__=='__main__':
         template=TEMPLATE
     )
     
-    if "messages" not in st.session_state:
+    if "messages" not in st.session_state and api_key:
         st.session_state["messages"] = [
-            {'role':'assistant', 'content':"G'day, how can I help you today?"}
+            {'role':'assistant', 'content':"Welcome! how can I help you today?"}
         ]
         
     for msg in st.session_state.messages:
