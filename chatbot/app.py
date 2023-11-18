@@ -350,6 +350,9 @@ if __name__=='__main__':
         template=TEMPLATE
     )
     
+    if not api_key:
+        st.info("Please input your OpenAI API key to use the chatbot")
+    
     if "messages" not in st.session_state and api_key:
         st.session_state["messages"] = [
             {'role':'assistant', 'content':"Welcome! how can I help you today?"}
