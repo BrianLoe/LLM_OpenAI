@@ -4,6 +4,7 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
+import openai
 
 from langchain.tools import BaseTool
 from langchain.agents import initialize_agent, Tool
@@ -326,78 +327,93 @@ if __name__=='__main__':
                 for when requesting for a plot.
                 """)
     # plot_check = st.checkbox('Display plot')
-    ## GPT Model
-    st.markdown("""
-                You need to input your OpenAI API key to use OpenAI GPT Model.
-                """)
-    api_key = st.text_input('Input your OpenAI API key', type='password')
     # # Load OpenAI API key from .env
     # load_dotenv()
-    llm = OpenAI(temperature=0, streaming=True, openai_api_key=api_key)
     # Tools for our agent to use
     tools = [ddg_tool, StockPriceTool(), StockPctChangeTool(), StockGetBestPerformingTool()]
-    
-    open_ai_agent = initialize_agent(
-        tools,
-        llm,
-        agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-        return_intermediate_steps=True,
-        verbose=True
-    )
-    
+
     prompt_template = PromptTemplate(
         input_variables=['query'],
         template=TEMPLATE
     )
-    
-    if not api_key:
-        st.info("Please input your OpenAI API key to use the chatbot")
-    
-    if "messages" not in st.session_state and api_key:
-        st.session_state["messages"] = [
-            {'role':'assistant', 'content':"Welcome! how can I help you today?"}
-        ]
-        
-    for msg in st.session_state.messages:
-      st.chat_message(msg['role']).write(msg['content']) 
-      
-    if query := st.chat_input(placeholder="What is the stock price of Commonwealth Bank of Australia?"):
-        prompt = prompt_template.format(query=query)
-        st.session_state.messages.append({'role':'user','content':prompt})
-        st.chat_message("user").write(prompt)
-        
-        with st.chat_message("assistant"):
-            with st.spinner('Generating ...'):
-                # st_callback = StreamlitCallbackHandler(st.container())
-                output = open_ai_agent(prompt)
-                response = output['output']
-                st.session_state.messages.append({'role':'assistant','content':response})
-                st.write(response)
-                # get the message arguments for plotting
-                steps_dict = output['intermediate_steps'][0][0].dict()
-                _args = steps_dict.get('tool_input')
+    flag = False
+    try:
+        print(yf.Ticker('TSLA').info)
+    except Exception as e:
+        st.warning("The Yahoo Finance API is currently down. The tool highly depends on the API functionalities.")
+        print(e)
+        flag = True
+    if not flag:
+        st.markdown("""
+                You need to input your OpenAI API key to use OpenAI GPT Model.
+                """)
+        api_key = st.text_input('Input your OpenAI API key', type='password')
+        llm = None
+        if not api_key:
+            st.info("Please input your OpenAI API key to use the chatbot")
+        ## GPT Model
+        else:
+            llm = OpenAI(temperature=0, streaming=True, openai_api_key=api_key)
+            openai.api_key = api_key
+            try:
+                openai.Model.list()
+            except openai.error.AuthenticationError as e:
+                st.warning("Authentication error, cannot validate your API key, please check whether the key is correct and re-input", icon="⚠️")
+                api_key = None
                 
-                if set(['plot', 'graph', 'chart']).intersection(set(prompt.lower().split())):
-                    if 'candlestick' in prompt.lower():
-                        code, days_ago = _args.split(',')
-                        if int(days_ago)>0:
-                            st.plotly_chart(get_candlestick_plot(code, int(days_ago)), use_container_width=True)
-                    else:
-                        plot_flag = False
-                        try:
-                            code, days_ago = _args.split(',')
-                            if int(days_ago)>0:
-                                st.plotly_chart(get_hist_price_plot(code, int(days_ago)), use_container_width=True)
-                                plot_flag = True
-
-                        except Exception as e:
-                            print('Trying plot for multiple stock tickers')
-                            
-                        try:
-                            if not plot_flag:
-                                stocks, days_ago = _args.split(', ')
-                                if int(days_ago)>0:
-                                    st.plotly_chart(get_multiple_price_plot(eval(stocks), int(days_ago)), use_container_width=True)
+        if llm and api_key:
+            open_ai_agent = initialize_agent(
+                tools,
+                llm,
+                agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+                return_intermediate_steps=True,
+                verbose=True
+            )
+            if "messages" not in st.session_state:
+                st.session_state["messages"] = [
+                    {'role':'assistant', 'content':"Welcome! how can I help you today?"}
+                ]
+                
+            for msg in st.session_state.messages:
+                st.chat_message(msg['role']).write(msg['content']) 
+            
+            if query := st.chat_input(placeholder="What is the stock price of Commonwealth Bank of Australia?"):
+                prompt = prompt_template.format(query=query)
+                st.session_state.messages.append({'role':'user','content':query})
+                st.chat_message("user").write(query)
+                
+                with st.chat_message("assistant"):
+                    with st.spinner('Generating ...'):
+                        # st_callback = StreamlitCallbackHandler(st.container())
+                        output = open_ai_agent(prompt)
+                        response = output['output']
+                        st.session_state.messages.append({'role':'assistant','content':response})
+                        st.write(response)
+                        # get the message arguments for plotting
+                        steps_dict = output['intermediate_steps'][0][0].dict()
+                        _args = steps_dict.get('tool_input')
                         
-                        except Exception as e:
-                            print(e)
+                        if set(['plot', 'graph', 'chart']).intersection(set(prompt.lower().split())):
+                            if 'candlestick' in prompt.lower():
+                                code, days_ago = _args.split(',')
+                                if int(days_ago)>0:
+                                    st.plotly_chart(get_candlestick_plot(code, int(days_ago)), use_container_width=True)
+                            else:
+                                plot_flag = False
+                                try:
+                                    code, days_ago = _args.split(',')
+                                    if int(days_ago)>0:
+                                        st.plotly_chart(get_hist_price_plot(code, int(days_ago)), use_container_width=True)
+                                        plot_flag = True
+
+                                except Exception as e:
+                                    print('Trying plot for multiple stock tickers')
+                                    
+                                try:
+                                    if not plot_flag:
+                                        stocks, days_ago = _args.split(', ')
+                                        if int(days_ago)>0:
+                                            st.plotly_chart(get_multiple_price_plot(eval(stocks), int(days_ago)), use_container_width=True)
+                                
+                                except Exception as e:
+                                    print(e)
