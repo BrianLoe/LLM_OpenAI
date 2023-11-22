@@ -314,7 +314,7 @@ class StockGetBestPerformingTool(BaseTool):
 if __name__=='__main__':
     # Streamlit UI Layout
     st.set_page_config(
-        page_title='Stock Price Analyzer GPT Tool',
+        page_title='Stosck Price Analyzer GPT Tool',
         page_icon='📈',
         # layout='centered'
     )
@@ -338,9 +338,12 @@ if __name__=='__main__':
     )
     flag = False
     try:
-        print(yf.Ticker('TSLA').info)
+        yf.Ticker('TSLA').info
     except Exception as e:
-        st.warning("The Yahoo Finance API is currently down. The tool highly depends on the API functionalities.")
+        st.warning("""
+            The Yahoo Finance API is currently down.\n
+            The chatbot highly depends on the API functionalities, so it won't be able to run without it.
+            """)
         print(e)
         flag = True
     if not flag:
@@ -354,12 +357,12 @@ if __name__=='__main__':
         ## GPT Model
         else:
             llm = OpenAI(temperature=0, streaming=True, openai_api_key=api_key)
-            openai.api_key = api_key
-            try:
-                openai.Model.list()
-            except openai.error.AuthenticationError as e:
-                st.warning("Authentication error, cannot validate your API key, please check whether the key is correct and re-input", icon="⚠️")
-                api_key = None
+            # openai.api_key = api_key
+            # try:
+            #     openai.Model.list()
+            # except openai.error.AuthenticationError as e:
+            #     st.warning("Authentication error, cannot validate your API key, please check whether the key is correct and re-input", icon="⚠️")
+            #     api_key = None
                 
         if llm and api_key:
             open_ai_agent = initialize_agent(
