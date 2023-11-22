@@ -338,7 +338,8 @@ if __name__=='__main__':
     )
     flag = False
     try:
-        yf.Ticker('TSLA').info
+        a = yf.Ticker('TSLA').info
+        del a
     except Exception as e:
         st.warning("""
             The Yahoo Finance API is currently down.\n
