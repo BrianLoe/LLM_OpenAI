@@ -314,7 +314,7 @@ class StockGetBestPerformingTool(BaseTool):
 if __name__=='__main__':
     # Streamlit UI Layout
     st.set_page_config(
-        page_title='Stosck Price Analyzer GPT Tool',
+        page_title='Stock Price Analyzer GPT Tool',
         page_icon='📈',
         # layout='centered'
     )
