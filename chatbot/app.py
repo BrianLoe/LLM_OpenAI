@@ -1,18 +1,17 @@
 import yfinance as yf
-import os
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
-import openai
 
 from langchain.tools import BaseTool
 from langchain.agents import initialize_agent, Tool
 from langchain.agents import AgentType
-from langchain.chat_models import ChatOpenAI
-from langchain import OpenAI, PromptTemplate
+# from langchain.chat_models import ChatOpenAI
+from langchain.prompts import PromptTemplate
+from langchain.llms import OpenAI
 from langchain.tools import DuckDuckGoSearchRun
-from langchain.callbacks import StreamlitCallbackHandler
+# from langchain.callbacks import StreamlitCallbackHandler
 
 from typing import Optional, Type
 from pydantic import BaseModel, Field
@@ -20,7 +19,9 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 
 TEMPLATE = """
-If a plot is requested, don't try to create a plot, just answer the rest of the question using the tools provided.
+You are a helpful chatbot that can answer queries related to Australian stock market. You do not and must not create a plot.
+You cannot provide any plot, so do not include it in the final answer. Answer it with the stock's current price.
+Remember to put ".AX" at the end of a stock ticker to request only for Australian stocks. Otherwise do not append ".AX".
 Query: {query}
 """
 
@@ -171,12 +172,15 @@ def get_multiple_price_plot(stocks: list, days_ago: int) -> go.Figure:
     # make a line plot
     fig = px.line(
         df,
-        title=f"{' vs '.join(stocks)} stock price comparison over {days_ago} days - now"
+        title=f"{' vs '.join(stocks)} stock price comparison over {days_ago} days - now",
+        markers=True,
+        color_discrete_sequence=['red', 'blue']
     ).update_layout(
         xaxis={'title':'Date'}, 
         yaxis={"title": f"Price ({currency})"}, 
         legend={"title":"Code"}
     )
+    fig.update_layout(hovermode="x unified")
     
     return fig
 
@@ -204,7 +208,6 @@ def get_candlestick_plot(code: str, days_ago:int) -> go.Figure:
                 high=hist_data['High'],
                 low=hist_data['Low'],
                 close=hist_data['Close'],
-                
             )
         ]
     ).update_layout(
@@ -220,12 +223,12 @@ def get_best_performing_stock(stocktickers_days):
     Get the best performing stock from the list of stock codes over days ago. Input is a string to be used by the agent.
     
     Args:
-        stocktickers_days (str): A string object in a comma-separated format of {list, int} ex: "[CBA.AX,BHP.AX,MQG.AX], 10"
+        stocktickers_days (str): A string object in a comma-separated format of {list, int} ex: "[CBA.AX,BHP.AX,MQG.AX]|10"
     
     Returns:
         tuple: A tuple consisting of the stock ticker and percentage of change.
     """
-    stocks, days_ago = stocktickers_days.split(', ') # input is '[], int'
+    stocks, days_ago = stocktickers_days.split('|') # input is '[], int'
     stocks = eval(stocks) # treat string object as a list
     days_ago = int(days_ago) # convert to int
     # create a starting point/benchmark
@@ -295,11 +298,11 @@ class StockPctChangeTool(BaseTool):
 class StockBestPerformingInput(BaseModel):
     """Input for Stock ticker. For performance comparison percentage check"""
 
-    input_string: str = Field(..., description='a comma separated list with length of 2 consisting of list of strings and a number')
+    input_string: str = Field(..., description='A string of a comma separated list of strings and a number')
     
 class StockGetBestPerformingTool(BaseTool):
     name = 'get_best_performing_stock'
-    description = "Use this only when you need to compare the performance/stock price/trend of two or more companies over a period days. You should input a list of stock tickers used on the yfinance API and also input the number of days to check the change over. The input to this tool should be a comma separated list with length of 2 consisting of list of strings representing the stock tickers (without space) and a number representing days to look back. For example, `['MSFT','AAPL','GOOGL'], 30` would be the input if you wanted to compare/find out Microsoft, Apple, Google stock price over 30 days ago. You don't need to do anything if plot is requested."
+    description = "Use this only when you need to compare the performance/stock price/trend of two or more companies over a period days. You should input a python list of stock tickers used on the yfinance API and also input the number of days to check the change over. The input to this tool should be a comma separated list consisting of strings representing the stock tickers without space and a number representing days to look back. The list and the number should be separated by |. For example, `['MSFT','AAPL','GOOGL']|30` would be the input if you wanted to compare Microsoft, Apple, Google stock price over 30 days ago. You don't need to do anything if plot is requested."
     
     def _run(self, stockticker_days: str):
         response = get_best_performing_stock(stockticker_days)
@@ -318,14 +321,20 @@ if __name__=='__main__':
         page_icon='📈',
         # layout='centered'
     )
-    st.title("OpenAI Stock Chatbot")
-    st.markdown("""
-                You can ask the bot about: 
-                price of a stock, trend of a stock over n days, performance comparison of two or more stocks, 
-                and search about latest news of a public listed company. Explicitly specify if you 
-                need a trend/line plot or candlestick plot. Always specify the stock and days you want to look 
-                for when requesting for a plot.
-                """)
+    with st.container():
+        st.title("Stock Chatbot using OpenAI")
+        st.markdown("""
+                    You can ask the bot about: 
+                    - Price of a stock  
+                    - Trend of a stock over n days  
+                    - Performance comparison of two or more stocks  
+                    - Search about latest news of a public listed company.  
+                    
+                    Explicitly specify if you need a trend/line plot or candlestick plot. It is recommended to specify the stock and days you want to query for.
+                    Otherwise you can set a default number of days to look back.  
+                    
+                    **The chatbot is designed to be used for querying Australian stock markets.**
+                    """)
     # plot_check = st.checkbox('Display plot')
     # # Load OpenAI API key from .env
     # load_dotenv()
@@ -336,7 +345,7 @@ if __name__=='__main__':
         input_variables=['query'],
         template=TEMPLATE
     )
-    flag = False
+    down_flag = False
     try:
         a = yf.Ticker('TSLA').info
         del a
@@ -346,26 +355,32 @@ if __name__=='__main__':
             The chatbot highly depends on the API functionalities, so it won't be able to run without it.
             """)
         print(e)
-        flag = True
-    if not flag:
-        st.markdown("""
-                You need to input your OpenAI API key to use OpenAI GPT Model.
-                """)
-        api_key = st.text_input('Input your OpenAI API key', type='password')
-        llm = None
-        if not api_key:
-            st.info("Please input your OpenAI API key to use the chatbot")
-        ## GPT Model
-        else:
-            llm = OpenAI(temperature=0, streaming=True, openai_api_key=api_key)
-            # openai.api_key = api_key
-            # try:
-            #     openai.Model.list()
-            # except openai.error.AuthenticationError as e:
-            #     st.warning("Authentication error, cannot validate your API key, please check whether the key is correct and re-input", icon="⚠️")
-            #     api_key = None
-                
+        down_flag = True
+    if not down_flag:
+        if 'api_key' not in st.session_state:
+            st.info("""
+                    You need to input your OpenAI API key to use the chatbot. This chatbot utilizes OpenAI GPT model.
+                    """)
+        with st.sidebar:
+            if 'api_key' not in st.session_state:
+                st.session_state.api_key = ''
+            def submit():
+                st.session_state.api_key = st.session_state.widget
+                st.session_state.widget = ''
+            st.text_input('Input your OpenAI API key', type='password', key='widget', on_change=submit)
+            api_key = st.session_state.api_key
+            llm = None
+            if not api_key:
+                st.info("Please input your OpenAI API key to use the chatbot")
+            ## GPT Model
+            else:
+                llm = OpenAI(temperature=0, streaming=True, openai_api_key=api_key)
+    
         if llm and api_key:
+            # days_ago = st.radio(
+            #     'Number of days to look back',
+            #     ['7 days', '14 days', '21 days', '30 days', '60 days', '90 days', '180 days', '365 days'],
+            #     index=3, horizontal=True)
             open_ai_agent = initialize_agent(
                 tools,
                 llm,
@@ -394,18 +409,23 @@ if __name__=='__main__':
                         st.session_state.messages.append({'role':'assistant','content':response})
                         st.write(response)
                         # get the message arguments for plotting
-                        steps_dict = output['intermediate_steps'][0][0].dict()
+                        steps_dict = output['intermediate_steps'][-1][0].dict()
                         _args = steps_dict.get('tool_input')
+                        if len(_args.split('|'))>1:
+                            stocks, days_ago = _args.split('|')
+                        elif len(_args.split(','))>1:
+                            code, days_ago = _args.split(',')
+                        else:
+                            code = _args
+                            days_ago = 30
                         
-                        if set(['plot', 'graph', 'chart']).intersection(set(prompt.lower().split())):
+                        if set(['plot', 'graph', 'chart', 'historical','compare']).intersection(set(prompt.lower().split())):
                             if 'candlestick' in prompt.lower():
-                                code, days_ago = _args.split(',')
                                 if int(days_ago)>0:
                                     st.plotly_chart(get_candlestick_plot(code, int(days_ago)), use_container_width=True)
                             else:
                                 plot_flag = False
                                 try:
-                                    code, days_ago = _args.split(',')
                                     if int(days_ago)>0:
                                         st.plotly_chart(get_hist_price_plot(code, int(days_ago)), use_container_width=True)
                                         plot_flag = True
@@ -415,7 +435,7 @@ if __name__=='__main__':
                                     
                                 try:
                                     if not plot_flag:
-                                        stocks, days_ago = _args.split(', ')
+                                        stocks, days_ago = _args.split('|')
                                         if int(days_ago)>0:
                                             st.plotly_chart(get_multiple_price_plot(eval(stocks), int(days_ago)), use_container_width=True)
                                 
