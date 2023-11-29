@@ -7,4 +7,8 @@ Current Features/Tools for the agent:
 - Stock price performance comparison for >2 tickers and the best-performing stock
 - Searching Tool
 
-Use the `.env` file on your local machine, clone the repo, and run it locally if you prefer not to input your API key.
+Use the `.env` file on your local machine, clone the repo, and run it locally if you prefer not to input your API key.  
+Steps:
+1. Install requirements.txt `pip install -r requirements.txt`
+2. Run app `streamlit run app.py`
+3. Add more features as you like!
