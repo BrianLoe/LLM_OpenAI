@@ -170,11 +170,12 @@ def get_multiple_price_plot(stocks: list, days_ago: int) -> go.Figure:
     # make a dataframe object
     df = pd.DataFrame(df_dict, index=hist_data.index)
     # make a line plot
+    colors = px.colors.sequential.Plasma[:len(stocks)]
     fig = px.line(
         df,
         title=f"{' vs '.join(stocks)} stock price comparison over {days_ago} days - now",
         markers=True,
-        color_discrete_sequence=['red', 'blue']
+        color_discrete_sequence=colors
     ).update_layout(
         xaxis={'title':'Date'}, 
         yaxis={"title": f"Price ({currency})"}, 
@@ -328,7 +329,7 @@ if __name__=='__main__':
                     - Price of a stock  
                     - Trend of a stock over n days  
                     - Performance comparison of two or more stocks  
-                    - Search about latest news of a public listed company.  
+                    - Search about latest news of a public listed company  
                     
                     Explicitly specify if you need a trend/line plot or candlestick plot. It is recommended to specify the stock and days you want to query for.
                     Otherwise you can set a default number of days to look back.  
