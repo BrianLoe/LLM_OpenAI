@@ -1,6 +1,7 @@
 import yfinance as yf
 import streamlit as st
 import pandas as pd
+import random
 import plotly.express as px
 import plotly.graph_objects as go
 from langchain.tools import BaseTool
@@ -10,6 +11,8 @@ from langchain.tools import DuckDuckGoSearchRun
 from typing import Optional, Type
 from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
+
+colors = px.colors.sequential.Rainbow
 
 def get_stock_price(code: str) -> str:
     """
@@ -44,7 +47,6 @@ def get_history_prices(code: str, days_ago: int) -> tuple:
         tuple: A pandas dataframe object and the currency associated.
     """
     ticker = yf.Ticker(code)
-    print(ticker.info.keys())
     try:
         currency = ticker.info['currency']
     except:
@@ -81,16 +83,45 @@ def get_price_change_pct(stockticker_days: str) -> float:
     
     return round(pct_change, 2)
 
-def get_hist_price_plot(stockticker_days) -> go.Figure:
+def get_best_performing_stock(stocktickers_days):
+    """
+    Get the best performing stock from the list of stock codes over days ago. Input is a string to be used by the agent.
+    
+    Args:
+        stocktickers_days (str): A string object in a comma-separated format of {list, int} ex: "[CBA.AX,BHP.AX,MQG.AX]|10"
+    
+    Returns:
+        tuple: A tuple consisting of the stock ticker and percentage of change.
+    """
+    stocks, days_ago = stocktickers_days.split('|') # input is '[]|int'
+    stocks = eval(stocks) # treat string object as a list
+    days_ago = int(days_ago) # convert to int
+    # create a starting point/benchmark
+    best_stock = stocks[0]
+    best_performance = get_price_change_pct(f"{stocks[0]},{days_ago}")
+    # iterate over the rest of {stocks}
+    for code in stocks[1:]:
+        try:
+            current_performance = get_price_change_pct(f"{code},{days_ago}") # get % of change
+            # compare with best performer
+            if current_performance>best_performance:
+                best_stock = code
+                best_performance = current_performance
+                
+        except Exception as e:
+            print(f"Could not calculate performance for {code}: {e}")
+            
+    return best_stock, best_performance
+
+def get_hist_price_plot(stockticker_days) -> float:
     """
     Create a line plot of a given stock code over days ago. 
     
     Args:
-        code (str): The stock code for which the closing price is to be retrieved.
-        days_ago (int): The number of days to look back.
+        stockticker_days (str): A string object in a format of comma-separated {ticker, days} ex: (CBA.AX,10)
         
     Returns:
-        plotly.graph_objects.Figure: The figure object storing the line plot.
+        float: The percentage of change rounded to two decimals from get_price_change_pct.
     """
     code, days_ago = stockticker_days.split(',')
     hist_data, currency = get_history_prices(code, int(days_ago)) # get history data
@@ -149,54 +180,15 @@ def get_hist_price_plot(stockticker_days) -> go.Figure:
     
     return get_price_change_pct(stockticker_days)
 
-def get_multiple_price_plot(stocktickers_days) -> go.Figure:
-    """
-    Get the line plot for multiple stocks to be plotted in one figure.
-    
-    Args:
-        stocks (list): List of stock code for which the closing price is to be retrieved.
-        days_ago (int): The number of days to look back.
-        
-    Returns:
-        plotly.graph_objects.Figure: The figure object storing the line plot.
-    """
-    stocks, days_ago = stocktickers_days.split('|') # input is '[]|int'
-    stocks = eval(stocks) # treat string object as a list
-    days_ago = int(days_ago) # convert to int
-    df_dict = dict.fromkeys(stocks,[]) # make a dictionary from {stocks} as keys and empty list as value
-    # iterate over the {stocks}
-    for code in stocks:
-        hist_data, currency = get_history_prices(code, days_ago) # get the history data
-        df_dict[code] = hist_data['Close'].values # take the closing price and store it into dictionary
-    # make a dataframe object
-    df = pd.DataFrame(df_dict, index=hist_data.index)
-    # make a line plot
-    fig = px.line(
-        df,
-        title=f"{' vs '.join(stocks)} stock price comparison over {days_ago} days - now",
-        markers=True,
-        color_discrete_sequence=['red', 'blue']
-    ).update_layout(
-        xaxis={'title':'Date'}, 
-        yaxis={"title": f"Price ({currency})"}, 
-        legend={"title":"Code"}
-    )
-    fig.update_layout(hovermode="x unified")
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    return get_best_performing_stock(stocktickers_days)
-
-def get_candlestick_plot(stockticker_days) -> go.Figure:
+def get_candlestick_plot(stockticker_days) -> float:
     """
     Get the candlestick plot of {code} over {days_ago}
     
     Args:
-        code (str): The stock code for creating the candlestick plot.
-        days_ago (int): The number of days to look back.
+        stockticker_days (str): A string object in a format of comma-separated {ticker, days} ex: (CBA.AX,10)
         
     Returns:
-        plotly.graph_objects.Figure: The figure object storing the candlestick figure.
+        float: The percentage of change rounded to two decimals from get_price_change_pct.
     """
     code, days_ago = stockticker_days.split(',')
     hist_data, currency = get_history_prices(code, int(days_ago)) # get history data
@@ -222,35 +214,43 @@ def get_candlestick_plot(stockticker_days) -> go.Figure:
     st.plotly_chart(fig, use_container_width=True)
     return get_price_change_pct(stockticker_days)
 
-def get_best_performing_stock(stocktickers_days):
+def get_multiple_price_plot(stocktickers_days):
     """
-    Get the best performing stock from the list of stock codes over days ago. Input is a string to be used by the agent.
+    Get the line plot for multiple stocks to be plotted in one figure.
     
     Args:
         stocktickers_days (str): A string object in a comma-separated format of {list, int} ex: "[CBA.AX,BHP.AX,MQG.AX]|10"
-    
+        
     Returns:
-        tuple: A tuple consisting of the stock ticker and percentage of change.
+        tuple: A tuple consisting of the stock ticker and percentage of change from get_best_performing_stock.
     """
     stocks, days_ago = stocktickers_days.split('|') # input is '[]|int'
     stocks = eval(stocks) # treat string object as a list
     days_ago = int(days_ago) # convert to int
-    # create a starting point/benchmark
-    best_stock = stocks[0]
-    best_performance = get_price_change_pct(f"{stocks[0]},{days_ago}")
-    # iterate over the rest of {stocks}
-    for code in stocks[1:]:
-        try:
-            current_performance = get_price_change_pct(f"{code},{days_ago}") # get % of change
-            # compare with best performer
-            if current_performance>best_performance:
-                best_stock = code
-                best_performance = current_performance
-                
-        except Exception as e:
-            print(f"Could not calculate performance for {code}: {e}")
-            
-    return best_stock, best_performance
+    df_dict = {key:[] for key in stocks} # make a dictionary from {stocks} as keys and empty list as value
+    # iterate over the {stocks}
+    for code in stocks:
+        hist_data, currency = get_history_prices(code, days_ago) # get the history data
+        df_dict[code] = hist_data['Close'].values # take the closing price and store it into dictionary
+    df_dict = {key:df_dict[key][:len(hist_data.index)] for key in stocks} 
+    # make a dataframe object
+    df = pd.DataFrame(df_dict, index=hist_data.index)
+    # make a line plot
+    fig = px.line(
+        df,
+        title=f"{' vs '.join(stocks)} stock price comparison over {days_ago} days - now",
+        markers=True,
+        color_discrete_sequence=random.choices(colors,k=len(stocks))
+    ).update_layout(
+        xaxis={'title':'Date'}, 
+        yaxis={"title": f"Price ({currency})"}, 
+        legend={"title":"Code"}
+    )
+    fig.update_layout(hovermode="x unified")
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    return get_best_performing_stock(stocktickers_days)
 
 ### Tools for the agent
 # Search tool using duckduckgo
@@ -265,7 +265,17 @@ class StockPriceCheckInput(BaseModel):
     """Input for stock price check."""
 
     stockticker: str = Field(..., description="Ticker code for stock or index")
+    
+class StockandDaysInput(BaseModel):
+    """Input for stock ticker for percentage or trend check"""
+    
+    stockticker_days: str = Field(..., description='a comma separated list with length of 2 consisting of string and number')
+       
+class MultipleStockDaysInput(BaseModel):
+    """Input for Stock ticker. For performance comparison percentage check"""
 
+    input_string: str = Field(..., description='A string of a comma separated list of strings and a number')
+   
 class StockPriceTool(BaseTool):
     name = "get_stock_ticker_price"
     description = """
@@ -283,12 +293,7 @@ class StockPriceTool(BaseTool):
         raise NotImplementedError("This tool does not support async")
 
     args_schema: Optional[Type[BaseModel]] = StockPriceCheckInput
-    
-class StockPctChangeCheckInput(BaseModel):
-    """Input for stock ticker for percentage or trend check"""
-    
-    input_string: str = Field(..., description='a comma separated list with length of 2 consisting of string and number')
-    
+ 
 class StockPctChangeTool(BaseTool):
     name = 'get_price_change_percent'
     description = """
@@ -305,13 +310,8 @@ class StockPctChangeTool(BaseTool):
     def _arun(self, stockticker_days: str):
         raise NotImplementedError("This tool does not support async")
     
-    args_schema: Optional[Type[BaseModel]] = StockPctChangeCheckInput
-    
-class StockBestPerformingInput(BaseModel):
-    """Input for Stock ticker. For performance comparison percentage check"""
-
-    input_string: str = Field(..., description='A string of a comma separated list of strings and a number')
-    
+    args_schema: Optional[Type[BaseModel]] = StockandDaysInput
+ 
 class StockGetBestPerformingTool(BaseTool):
     name = 'get_best_performing_stock'
     description = """
@@ -321,21 +321,16 @@ class StockGetBestPerformingTool(BaseTool):
     The list and the number should be separated by |. For example, `['MSFT','AAPL','GOOGL']|30` would be the input if you wanted to compare Microsoft, Apple, Google stock price over 30 days ago. 
     """
     
-    def _run(self, stockticker_days: str):
-        response = get_best_performing_stock(stockticker_days)
+    def _run(self, stocktickers_days: str):
+        response = get_best_performing_stock(stocktickers_days)
 
         return response
     
     def _arun(self, stockticker_days: str):
         raise NotImplementedError("This tool does not support async")
 
-    args_schema: Optional[Type[BaseModel]] = StockBestPerformingInput
-    
-class StockHistoricalPlotInput(BaseModel):
-    """Input for Stock ticker. For plotting historical prices of a stock."""
+    args_schema: Optional[Type[BaseModel]] = MultipleStockDaysInput
 
-    input_string: str = Field(..., description='a comma separated string with length of 2 consisting of string and number')  
-    
 class StockGetHistoricalPlotTool(BaseTool):
     name = 'get_historical_prices_plot'
     description = """
@@ -354,13 +349,8 @@ class StockGetHistoricalPlotTool(BaseTool):
     def _arun(self, stockticker_days: str):
         raise NotImplementedError("This tool does not support async")
 
-    args_schema: Optional[Type[BaseModel]] = StockHistoricalPlotInput
-    
-class StockGetMultiplePlotInput(BaseModel):
-    """Input for Stock ticker. For plotting multiple stocks."""
+    args_schema: Optional[Type[BaseModel]] = StockandDaysInput
 
-    input_string: str = Field(..., description='a comma separated string with length of 2 consisting of string and number')
-    
 class StockGetMultiplePlotTool(BaseTool):
     name = 'get_multiple_stocks_price_plot'
     description = """
@@ -379,13 +369,8 @@ class StockGetMultiplePlotTool(BaseTool):
     def _arun(self, stockticker_days: str):
         raise NotImplementedError("This tool does not support async")
 
-    args_schema: Optional[Type[BaseModel]] = StockGetMultiplePlotInput
-    
-class StockGetCandlestickInput(BaseModel):
-    """Input for Stock ticker. For plotting candlestick"""
-
-    input_string: str = Field(..., description='a comma separated string with length of 2 consisting of string and number')
-    
+    args_schema: Optional[Type[BaseModel]] = MultipleStockDaysInput
+ 
 class StockGetCandlestickTool(BaseTool):
     name = 'get_candlestick_plot'
     description = """
@@ -405,4 +390,4 @@ class StockGetCandlestickTool(BaseTool):
     def _arun(self, stockticker_days: str):
         raise NotImplementedError("This tool does not support async")
 
-    args_schema: Optional[Type[BaseModel]] = StockBestPerformingInput
+    args_schema: Optional[Type[BaseModel]] = StockandDaysInput
