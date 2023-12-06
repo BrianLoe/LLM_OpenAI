@@ -1,24 +1,52 @@
 import yfinance as yf
 import streamlit as st
 
-from langchain.agents import initialize_agent
-from langchain.agents import AgentType
+from langchain.agents import initialize_agent, ZeroShotAgent, AgentExecutor
+from langchain.chains import LLMChain
+from langchain.memory import ConversationBufferWindowMemory
 # from langchain.chat_models import ChatOpenAI
-from langchain.prompts import PromptTemplate
+# from langchain.prompts import PromptTemplate
 from langchain.llms import OpenAI
 # from langchain.callbacks import StreamlitCallbackHandler
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 from agent_tools import *
 
 # You cannot provide any plot, so do not include it in the final answer.
-TEMPLATE = """
+PREFIX = """
 You are a helpful chatbot that can answer queries related to Australian stock market. You do not and must not create a plot.
 If number of days is not specified, the default number of days is 30.
-The plotting tools are provided for you to use. If a plot is requested, it will return the float percentage change increase or decrease, you need to interpret it.
-Or if multiple stocks plot is requested, the tool will return the best performing stock and the float percentage change change increase or decrease, you need to interpret it.
-Remember to put ".AX" at the end of a stock ticker to request only for Australian stocks. Otherwise do not append ".AX".
-Query: {query}
+The plotting tools are provided for you to use. If a plot is requested, you need to interpret the float percentage change.
+Remember to append ".AX" for Australian stock tickers.
 """
+SUFFIX = """ Begin!  
+{chat_history}
+Query: {query}
+{agent_scratchpad}
+"""
+
+def get_tools():
+    """Tools for our agent to use"""
+    tools = [ddg_tool, 
+             StockPriceTool(), StockPctChangeTool(), StockGetBestPerformingTool(), 
+             StockGetCandlestickTool(), StockGetHistoricalPlotTool(), StockGetMultiplePlotTool()]
+    return tools
+
+def initialize_agent(llm_model, tools):
+    """Initialize the agent with prompt and the chain"""
+    prompt = ZeroShotAgent.create_prompt(tools, prefix=PREFIX, suffix=SUFFIX, input_variables=['query', 'chat_history', 'agent_scratchpad'])
+    llm_chain = LLMChain(llm=llm_model, prompt=prompt)
+    open_ai_agent = ZeroShotAgent(llm_chain=llm_chain, tools=tools, verbose=True)
+    
+    return open_ai_agent
+
+def check_yf_api():
+    """Check if the Yahoo Finance API is up"""
+    try:
+        a = yf.Ticker('TSLA').info
+        del a
+        return True, None
+    except Exception as e:
+        return False, str(e)
     
 if __name__=='__main__':
     # Streamlit UI Layout
@@ -41,30 +69,22 @@ if __name__=='__main__':
                     
                     **The chatbot is designed to be used for querying Australian stock markets.**
                     """)
-    # plot_check = st.checkbox('Display plot')
-    # # Load OpenAI API key from .env
-    # load_dotenv()
-    # Tools for our agent to use
-    tools = [ddg_tool, 
-             StockPriceTool(), StockPctChangeTool(), StockGetBestPerformingTool(), 
-             StockGetCandlestickTool(), StockGetHistoricalPlotTool(), StockGetMultiplePlotTool()]
-
-    prompt_template = PromptTemplate(
-        input_variables=['query'],
-        template=TEMPLATE
-    )
-    down_flag = False
-    try:
-        a = yf.Ticker('TSLA').info
-        del a
-    except Exception as e:
+    # llm state initialization
+    if "llm_initialization_state_flag" not in st.session_state:
+        st.session_state.llm_initialization_state_flag = False
+        
+    tools = get_tools()
+    memory = ConversationBufferWindowMemory(memory_key='chat_history',k=2)
+    # check for YF API dependency
+    up_flag, msg = check_yf_api()
+    if not up_flag:
         st.warning("""
             The Yahoo Finance API is currently down.\n
             The chatbot highly depends on the API functionalities, so it won't be able to run without it.
             """)
-        print(e)
-        down_flag = True
-    if not down_flag:
+        print(msg)
+    else:
+        # check for OpenAI API key
         if 'api_key' not in st.session_state:
             st.info("""
                     You need to input your OpenAI API key to use the chatbot. This chatbot utilizes OpenAI GPT model.
@@ -77,25 +97,26 @@ if __name__=='__main__':
                 st.session_state.widget = ''
             st.text_input('Input your OpenAI API key', type='password', key='widget', on_change=submit)
             api_key = st.session_state.api_key
-            llm = None
-            if not api_key:
-                st.info("Please input your OpenAI API key to use the chatbot")
-            ## GPT Model
-            else:
-                llm = OpenAI(temperature=0, streaming=True, openai_api_key=api_key)
+        llm = None
+        # initialize llm model
+        if api_key:
+            # GPT Model (text-davinci-003)
+            llm = OpenAI(temperature=0, streaming=True, openai_api_key=api_key)
+        else:
+            st.info("Please input your OpenAI API key to use the chatbot")
     
-        if llm and api_key:
-            # days_ago = st.radio(
-            #     'Number of days to look back',
-            #     ['7 days', '14 days', '21 days', '30 days', '60 days', '90 days', '180 days', '365 days'],
-            #     index=3, horizontal=True)
-            open_ai_agent = initialize_agent(
-                tools,
-                llm,
-                agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-                return_intermediate_steps=True,
-                verbose=True
+        if llm:
+            # initialize memory
+            if "buffer_memory" not in st.session_state:
+                st.session_state["buffer_memory"] = memory   
+                
+            open_ai_agent = initialize_agent(llm, tools)
+            agent_chain = AgentExecutor.from_agent_and_tools(
+                agent=open_ai_agent, tools=tools, verbose=True, memory=st.session_state["buffer_memory"]
             )
+            st.session_state["llm_initialization_state_flag"] = True
+        # initialize the chatbot agent   
+        if st.session_state["llm_initialization_state_flag"]:   
             if "messages" not in st.session_state:
                 st.session_state["messages"] = [
                     {'role':'assistant', 'content':"Welcome! how can I help you today?"}
@@ -105,48 +126,17 @@ if __name__=='__main__':
                 st.chat_message(msg['role']).write(msg['content']) 
             
             if query := st.chat_input(placeholder="What is the stock price of Commonwealth Bank of Australia?"):
-                prompt = prompt_template.format(query=query)
+                # prompt = prompt_template.format(query=query)
                 st.session_state.messages.append({'role':'user','content':query})
                 st.chat_message("user").write(query)
                 
                 with st.chat_message("assistant"):
                     with st.spinner('Generating ...'):
                         # st_callback = StreamlitCallbackHandler(st.container())
-                        output = open_ai_agent(prompt)
-                        response = output['output']
-                        st.session_state.messages.append({'role':'assistant','content':response})
-                        st.write(response)
-                        # get the message arguments for plotting
-                        # steps_dict = output['intermediate_steps'][-1][0].dict()
-                        # _args = steps_dict.get('tool_input')
-                        # if len(_args.split('|'))>1:
-                        #     stocks, days_ago = _args.split('|')
-                        # elif len(_args.split(','))>1:
-                        #     code, days_ago = _args.split(',')
-                        # else:
-                        #     code = _args
-                        #     days_ago = 30
-                        
-                        # if set(['plot', 'graph', 'chart', 'historical','compare']).intersection(set(prompt.lower().split())):
-                        #     if 'candlestick' in prompt.lower():
-                        #         pass
-                        #         if int(days_ago)>0:
-                        #             st.plotly_chart(get_candlestick_plot(code, int(days_ago)), use_container_width=True)
-                        #     else:
-                        #         plot_flag = False
-                        #         try:
-                        #             if int(days_ago)>0:
-                        #                 st.plotly_chart(get_hist_price_plot(code, int(days_ago)), use_container_width=True)
-                        #                 plot_flag = True
-
-                        #         except Exception as e:
-                        #             print('Trying plot for multiple stock tickers')
-                                    
-                        #         try:
-                        #             if not plot_flag:
-                        #                 stocks, days_ago = _args.split('|')
-                        #                 if int(days_ago)>0:
-                        #                     st.plotly_chart(get_multiple_price_plot(eval(stocks), int(days_ago)), use_container_width=True)
-                                
-                        #         except Exception as e:
-                        #             print(e)
+                        try:
+                            output = agent_chain.run(query=query)
+                        except Exception as e:
+                            output = "It seems that I wasn't able to answer your query due to an error in my end. Please try again or open the debugger."
+                        # response = output['output']
+                        st.session_state.messages.append({'role':'assistant','content':output})
+                        st.write(output)
