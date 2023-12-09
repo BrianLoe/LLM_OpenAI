@@ -11,12 +11,12 @@ from langchain.tools import DuckDuckGoSearchRun
 from typing import Optional, Type
 from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
-
+# Visualisation colors
 colors = px.colors.sequential.Rainbow
 
 def get_stock_price(code: str) -> str:
     """
-    Get the closing price of a given stock code.
+    Get the latest closing price of a given stock code.
     
     Args:
         code (str): The stock code for which the closing price is to be retrieved.
@@ -26,10 +26,15 @@ def get_stock_price(code: str) -> str:
     """
     ticker = yf.Ticker(code)
     try:
+        a = ticker.info
+    except Exception as e:
+        print(e)
+        return 'Stock ticker is not available.'
+    try:
         currency = ticker.info['currency']
     except:
         print('Currency info is not available')
-        currency = 'AUD'
+        currency = ''
     todays_data = ticker.history(period='1d')
     closing_price = todays_data['Close'].iloc[0]
     formatted_price = "{:.2f} {}".format(closing_price, currency)
@@ -280,7 +285,7 @@ class StockPriceTool(BaseTool):
     name = "get_stock_ticker_price"
     description = """
     Use this only when you need to find out today's price of a stock and not price over a period of time. 
-    You should input the stock ticker used on the yfinance API. 
+    You should input the stock ticker used on the yfinance API.
     """
 
     def _run(self, stockticker: str):

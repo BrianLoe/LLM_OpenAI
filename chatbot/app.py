@@ -1,6 +1,6 @@
 import yfinance as yf
 import streamlit as st
-
+import httpx
 from langchain.agents import initialize_agent, ZeroShotAgent, AgentExecutor
 from langchain.chains import LLMChain
 from langchain.memory import ConversationBufferWindowMemory
@@ -13,10 +13,11 @@ from agent_tools import *
 
 # You cannot provide any plot, so do not include it in the final answer.
 PREFIX = """
-You are a helpful chatbot that can answer queries related to Australian stock market. You do not and must not create a plot.
+You are a helpful chatbot that can answer queries related to Australian stock market.  Stock ticker can be not available, and that is okay.
 If number of days is not specified, the default number of days is 30.
 The plotting tools are provided for you to use. If a plot is requested, you need to interpret the float percentage change.
-Remember to append ".AX" for Australian stock tickers.
+Remember to append ".AX" for Australian stock tickers. If you don't know the ticker code, you need to search it using the tool.
+Don't try to give an answer if you don't know the answer.
 """
 SUFFIX = """ Begin!  
 {chat_history}
@@ -43,7 +44,6 @@ def check_yf_api():
     """Check if the Yahoo Finance API is up"""
     try:
         a = yf.Ticker('TSLA').info
-        del a
         return True, None
     except Exception as e:
         return False, str(e)
@@ -136,7 +136,11 @@ if __name__=='__main__':
                         try:
                             output = agent_chain.run(query=query)
                         except Exception as e:
-                            output = "It seems that I wasn't able to answer your query due to an error in my end. Please try again or open the debugger."
+                            msg = ''
+                            if isinstance(e,httpx.HTTPError):
+                                msg = "The DuckDuckGo search tool is currently down. "
+                            print(e)
+                            output = f"It seems that I wasn't able to answer your query due to an error in my end. {msg}Please try again or open the debugger."
                         # response = output['output']
                         st.session_state.messages.append({'role':'assistant','content':output})
                         st.write(output)
