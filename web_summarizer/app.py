@@ -61,6 +61,7 @@ if __name__ == "__main__":
 
         output_summary = chain.run(docs)
         wrapped_text = textwrap.fill(output_summary, width=100)
+        wrapped_text = wrapped_text.replace("\n", " ").replace(". -", ".\n-")
         print(wrapped_text)
      
 
